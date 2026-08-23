@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { getSpecies, type ChartRow } from "../api";
 
 const ESCAPE_MAP: Record<string, string> = {
     "&": "&amp;",
@@ -14,12 +14,6 @@ function esc(value: unknown): string {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
-
-interface ChartRow {
-    com_name: string;
-    sci_name: string;
-    time: string;
-}
 
 interface SpeciesEntry {
     name: string;
@@ -113,26 +107,22 @@ class SpeciesChart extends HTMLElement {
 
     async load(): Promise<void> {
         this.setStatus("Loading…");
-        const { data, error } = await supabase
-            .from("detections")
-            .select("com_name, sci_name, time")
-            .gte("date", this.startDate)
-            .lte("date", this.endDate)
-            .limit(5000);
+        try {
+            const { data } = await getSpecies(this.startDate, this.endDate);
+            const rows = (data ?? []) as ChartRow[];
+            if (!rows.length) {
+                this.setStatus("No detections for this date range.");
+                this.scrollEl.innerHTML = "";
+                return;
+            }
 
-        if (error) {
-            this.setStatus(`Error loading chart: ${error.message}`);
+            this.setStatus("");
+            this.render(this.aggregate(rows));
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.setStatus(`Error loading chart: ${message}`);
             return;
         }
-        const rows = (data ?? []) as ChartRow[];
-        if (!rows.length) {
-            this.setStatus("No detections for this date range.");
-            this.scrollEl.innerHTML = "";
-            return;
-        }
-
-        this.setStatus("");
-        this.render(this.aggregate(rows));
     }
 
     /** Build per-species totals and hourly counts, ordered by total desc. */

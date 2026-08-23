@@ -1,72 +1,116 @@
-# BirdNET Detections Client on Cloudflare
+# BirdNET Detections on Cloudflare
 
-A small standalone [Vite](https://vitejs.dev) app, written in TypeScript, that
-displays your BirdNET-Pi detections from Supabase using a native Web Component
-(`<detections-table>`).
-It mirrors the "detections_table" from the main BirdNET-Pi web UI: today's
-detections, newest first, with search and "Load 40 More" pagination.
+This project contains a Vite client and a Cloudflare Worker API. The Worker
+stores detection metadata in D1 and BirdNET-Pi media in R2. The browser only
+calls public read endpoints and never receives the Pi upload secret or R2
+credentials.
 
-## Security
+## Cloudflare setup
 
-This app runs in the browser, so it uses the Supabase **anon** (publishable)
-key — **never** the `service_role` key. Enable a read-only row-level-security
-policy on the `detections` table so the anon key can only read:
-
-```sql
-alter table public.detections enable row level security;
-
-create policy "public read"
-  on public.detections for select
-  to anon using (true);
-
-grant select on public.detections to anon;
-```
-
-## Setup
+Create a D1 database and an R2 bucket, then replace the placeholders in
+`wrangler.toml`:
 
 ```bash
-cd client
-pnpm install
-cp .env.example .env.local   # then edit .env.local with your URL + anon key
-pnpm dev
+wrangler d1 create birdnet-db
+wrangler r2 bucket create birdnet-media
 ```
 
-Open the printed URL (default http://localhost:5173).
+Run the schema migration locally or against the remote database:
 
-## Environment
+```bash
+wrangler d1 migrations apply birdnet-db --local
+wrangler d1 migrations apply birdnet-db --remote
+```
 
-`.env.local` (gitignored):
+Set the Pi secret. It is a Worker secret and must not be included in the
+client build:
+
+```bash
+wrangler secret put PI_UPLOAD_SECRET
+```
+
+Configure a public custom domain for the `birdnet-media` R2 bucket. The
+custom-domain base URL is used only for read access to media; R2 credentials
+and writes remain private to the Worker.
+
+Deploy with:
+
+```bash
+pnpm run build
+wrangler deploy
+```
+
+## Worker API
+
+Pi uploads require `Authorization: Bearer <PI_UPLOAD_SECRET>`.
+
+Upload media with the requested object path and a supported content type:
+
+```bash
+curl -X PUT "$WORKER_URL/media/2026/08/23/black%20bird.wav" \
+  -H "Authorization: Bearer $PI_UPLOAD_SECRET" \
+  -H "Content-Type: audio/wav" \
+  --data-binary @black-bird.wav
+```
+
+Supported media types are WAV, MP3, FLAC, and PNG. The response is:
+
+```json
+{"path":"2026/08/23/black bird.wav"}
+```
+
+Post one detection or an array of detections to `/detections`:
+
+```json
+{
+  "date": "2026-08-23",
+  "time": "12:34:56",
+  "sci_name": "Turdus merula",
+  "com_name": "Blackbird",
+  "confidence": 0.91,
+  "lat": -41.2,
+  "lon": 174.8,
+  "cutoff": 0.7,
+  "week": 34,
+  "sens": 1.0,
+  "overlap": 0.0,
+  "file_name": "black-bird.wav",
+  "audio_path": "2026/08/23/black bird.wav",
+  "spectrogram_path": "2026/08/23/black bird.png"
+}
+```
+
+Public reads are:
+
+```text
+GET /detections?date=YYYY-MM-DD&offset=0&search=black
+GET /species?date=YYYY-MM-DD
+```
+
+The client also uses `start_date` and `end_date` for date ranges. Detection
+responses include `audio_path` and `spectrogram_path`, which are nullable for
+older rows.
+
+## Client environment
+
+Copy `.env.example` to `.env.local` for local development. Set the same
+variables as Cloudflare build environment variables for the Worker deployment:
 
 ```ini
-VITE_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_API_BASE=https://birdnet-worker.YOUR-SUBDOMAIN.workers.dev
+VITE_R2_PUBLIC_BASE=https://media.example.com
 ```
 
-## What it shows
+Vite embeds these values during `pnpm run build`. The client constructs media
+URLs as `${VITE_R2_PUBLIC_BASE}/${path}`, encoding each path segment so spaces
+and special characters work correctly.
 
-| Column                           | Source                                |
-| -------------------------------- | ------------------------------------- |
-| Time                             | `detections.time`                     |
-| Common Name (links to Wikipedia) | `detections.com_name` / `sci_name`    |
-| Scientific Name                  | `detections.sci_name`                 |
-| Confidence                       | `round(detections.confidence * 100)%` |
-
-Audio clips and species images are not included — those files live on the Pi,
-not in Supabase.
-
-## TypeScript
-
-Type checking uses the [TypeScript 7 native compiler](https://devblogs.microsoft.com/typescript/typescript-native-port/)
-(`tsgo`, shipped as `@typescript/native-preview`). Vite transpiles the `.ts`
-sources with esbuild; `tsgo` is only used for type checking.
+## Development and validation
 
 ```bash
-pnpm typecheck   # type-check with tsgo (no emit)
-```
-
-## Build
-
-```bash
-pnpm build     # tsgo type-check, then vite build to dist/
-pnpm preview   # preview the production build
+pnpm install
+pnpm dev
+pnpm typecheck
+pnpm test
+pnpm build
 ```

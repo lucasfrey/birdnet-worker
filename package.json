@@ -7,13 +7,12 @@
         "dev": "vite",
         "build": "tsgo --noEmit && vite build",
         "preview": "vite preview",
+        "test": "node --test --experimental-strip-types test/worker.test.ts",
         "typecheck": "tsgo --noEmit"
-    },
-    "dependencies": {
-        "@supabase/supabase-js": "^2.45.0"
     },
     "devDependencies": {
         "@typescript/native-preview": "7.0.0-dev.20260707.2",
-        "vite": "^8.2.2"
+        "vite": "^8.2.2",
+        "wrangler": "^4.125.0"
     }
 }

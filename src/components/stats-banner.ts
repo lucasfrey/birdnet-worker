@@ -1,4 +1,4 @@
-import { supabase } from "../supabase";
+import { getStats } from "../api";
 
 interface Stat {
     label: string;
@@ -23,68 +23,23 @@ class StatsBanner extends HTMLElement {
         return `${year}-${month}-${day}`;
     }
 
-    private localTime(date: Date): string {
-        return `${String(date.getHours()).padStart(2, "0")}:${String(
-            date.getMinutes(),
-        ).padStart(2, "0")}:00`;
-    }
-
-    private async count(
-        filters: (query: any) => any = (query) => query,
-    ): Promise<number> {
-        let query = supabase
-            .from("detections")
-            .select("id", { count: "exact", head: true });
-        query = filters(query);
-        const { count, error } = await query;
-        if (error) throw error;
-        return count ?? 0;
-    }
-
-    private async species(date?: string): Promise<number> {
-        let query = supabase.from("detections").select("sci_name");
-        if (date) query = query.eq("date", date);
-        const { data, error } = await query.limit(10000);
-        if (error) throw error;
-        return new Set((data ?? []).map((row) => row.sci_name)).size;
-    }
-
     private async load(): Promise<void> {
         const now = new Date();
         const today = this.localDate(now);
-        const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-        const lastHourFilters = (query: any) => {
-            if (this.localDate(hourAgo) === today) {
-                return query
-                    .eq("date", today)
-                    .gte("time", this.localTime(hourAgo));
-            }
-            return query
-                .eq("date", this.localDate(hourAgo))
-                .gte("time", this.localTime(hourAgo));
-        };
-
         try {
-            const [total, todayCount, hourCount, totalSpecies, todaySpecies] =
-                await Promise.all([
-                    this.count(),
-                    this.count((query) => query.eq("date", today)),
-                    this.count(lastHourFilters),
-                    this.species(),
-                    this.species(today),
-                ]);
+            const stats = await getStats(today);
 
             this.render([
-                { label: "Total", value: total.toLocaleString() },
-                { label: "Today", value: todayCount.toLocaleString() },
-                { label: "Last Hour", value: hourCount.toLocaleString() },
+                { label: "Total", value: stats.total.toLocaleString() },
+                { label: "Today", value: stats.today.toLocaleString() },
+                { label: "Last Hour", value: stats.lastHour.toLocaleString() },
                 {
                     label: "Species Total",
-                    value: totalSpecies.toLocaleString(),
+                    value: stats.speciesTotal.toLocaleString(),
                 },
                 {
                     label: "Species Today",
-                    value: todaySpecies.toLocaleString(),
+                    value: stats.speciesToday.toLocaleString(),
                 },
             ]);
         } catch (error) {

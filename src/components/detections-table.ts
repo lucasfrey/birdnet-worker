@@ -1,15 +1,7 @@
-import { supabase } from "../supabase";
+import { getDetections, mediaUrl, type DetectionRow } from "../api";
 import { getBirdThumbnail } from "../wikipedia";
 
 const PAGE = 40;
-
-interface DetectionRow {
-    date: string;
-    time: string;
-    com_name: string;
-    sci_name: string;
-    confidence: number;
-}
 
 const ESCAPE_MAP: Record<string, string> = {
     "&": "&amp;",
@@ -106,6 +98,7 @@ class DetectionsTable extends HTMLElement {
             <th>Common Name</th>
             <th>Scientific Name</th>
             <th>Confidence</th>
+            <th>Media</th>
             <th>Info</th>
           </tr>
         </thead>
@@ -166,38 +159,26 @@ class DetectionsTable extends HTMLElement {
     }
 
     async load(): Promise<void> {
-        let query = supabase
-            .from("detections")
-            .select("date, time, com_name, sci_name, confidence")
-            .gte("date", this.startDate)
-            .lte("date", this.endDate)
-            .order("date", { ascending: false })
-            .order("time", { ascending: false })
-            .range(this.offset, this.offset + PAGE - 1);
-
-        if (this.search) {
-            const term = this.search.replace(/[%,]/g, "");
-            query = query.or(
-                `com_name.ilike.%${term}%,sci_name.ilike.%${term}%`,
+        try {
+            const { data } = await getDetections(
+                this.startDate,
+                this.endDate,
+                this.offset,
+                this.search,
+                PAGE,
             );
-        }
+            const rows = data ?? [];
+            this.render(rows);
+            this.offset += rows.length;
+            this.moreBtn.hidden = rows.length < PAGE;
 
-        const { data, error } = await query;
-
-        if (error) {
-            this.setStatus(`Error loading detections: ${error.message}`);
+            this.setStatus(
+                this.offset === 0 ? "No detections for this date range." : "",
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.setStatus(`Error loading detections: ${message}`);
             return;
-        }
-
-        const rows = (data ?? []) as DetectionRow[];
-        this.render(rows);
-        this.offset += rows.length;
-        this.moreBtn.hidden = rows.length < PAGE;
-
-        if (this.offset === 0) {
-            this.setStatus("No detections for this date range.");
-        } else {
-            this.setStatus("");
         }
     }
 
@@ -219,6 +200,7 @@ class DetectionsTable extends HTMLElement {
         <td><a href="${wikiUrl}" target="_blank" rel="noopener">${esc(d.com_name)}</a></td>
         <td><i>${esc(d.sci_name)}</i></td>
         <td class="conf">${Math.round(Number(d.confidence) * 100)}%</td>
+        <td class="media"></td>
         <td class="info">
           <a href="${infoUrl}" target="_blank" rel="noopener" title="All About Birds" aria-label="All About Birds">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -231,6 +213,28 @@ class DetectionsTable extends HTMLElement {
       `;
             this.tbody.appendChild(tr);
             this.loadThumbnail(tr.querySelector(".photo")!, d);
+            this.renderMedia(tr.querySelector(".media")!, d);
+        }
+    }
+
+    renderMedia(cell: Element, d: DetectionRow): void {
+        const audio = mediaUrl(d.audio_path);
+        const spectrogram = mediaUrl(d.spectrogram_path);
+        if (audio) {
+            const player = document.createElement("audio");
+            player.controls = true;
+            player.preload = "none";
+            player.src = audio;
+            player.title = `Play ${d.com_name}`;
+            cell.appendChild(player);
+        }
+        if (spectrogram) {
+            const image = document.createElement("img");
+            image.src = spectrogram;
+            image.alt = `${d.com_name} spectrogram`;
+            image.loading = "lazy";
+            image.width = 120;
+            cell.appendChild(image);
         }
     }
 

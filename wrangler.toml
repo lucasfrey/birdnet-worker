@@ -1,5 +1,18 @@
 name = "birdnet-worker"
 compatibility_date = "2026-08-23"
+main = "src/worker.ts"
 
 [assets]
 directory = "./dist"
+
+[[d1_databases]]
+binding = "DETECTIONS_DB"
+database_name = "birdnet-db"
+database_id = "5fe107a4-e773-4258-be05-aab2dbf23c83"
+
+[[r2_buckets]]
+binding = "MEDIA_BUCKET"
+bucket_name = "birdnet-media"
+
+[vars]
+CLIENT_ORIGIN = "https://YOUR_CLIENT_DOMAIN"
