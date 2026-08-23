@@ -1,4 +1,4 @@
-# BirdNET Detections Client
+# BirdNET Detections Client on Cloudflare
 
 A small standalone [Vite](https://vitejs.dev) app, written in TypeScript, that
 displays your BirdNET-Pi detections from Supabase using a native Web Component
